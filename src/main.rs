@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use Connection::{Closed, Open};
 
 type CommsResult<T> = Result<T, CommsError>;
 
@@ -21,7 +22,11 @@ enum MessageType {
 
 impl MessageType {
     fn header(&self) -> &'static str {
-        todo!()
+        match self {
+            MessageType::Handshake => "[HANDSHAKE]",
+            MessageType::Post => "[POST]",
+            MessageType::GetCount => "[GET COUNT]",
+        }
     }
 }
 
@@ -69,7 +74,19 @@ impl Client {
     // Method should return an error when a connection already exists.
     // The client should send a handshake to the server.
     fn open(&mut self, addr: &str, server: Server) -> CommsResult<()> {
-        todo!()
+        match self.connections.get(addr) {
+            Some(_) => Err(CommsError::ConnectionExists(String::from(addr))),
+            None => {
+                let mut mutable_server = server;
+                let _result = mutable_server.receive(Message {
+                    msg_type: MessageType::Handshake,
+                    load: self.ip.clone(),
+                });
+                self.connections
+                    .insert(String::from(addr), Connection::Open(mutable_server));
+                Ok(())
+            }
+        }
     }
 
     // Sends the provided message to the server at the given `addr`.
@@ -77,21 +94,41 @@ impl Client {
     // responds with a ServerLimitReached error, its corresponding connection
     // should be closed.
     fn send(&mut self, addr: &str, msg: Message) -> CommsResult<Response> {
-        // server.receive(msg)
-        todo!()
+        match self.connections.get_mut(addr) {
+            Some(Open(s)) => {
+                let respond = s.receive(msg);
+                if respond == Err(CommsError::ServerLimitReached(s.name.clone())) {
+                    self.connections.remove(addr);
+                    self.connections
+                        .insert(String::from(addr), Connection::Closed);
+                }
+                respond
+            }
+            Some(Closed) => Err(CommsError::ConnectionClosed(String::from(addr))),
+            None => Err(CommsError::ConnectionNotFound(String::from(addr))),
+        }
     }
 
     // Returns whether the connection to `addr` exists and has
     // the `Open` status.
     #[allow(dead_code)]
     fn is_open(&self, addr: &str) -> bool {
-        todo!()
+        match self.connections.get(addr) {
+            Some(Connection::Closed) | None => false,
+            Some(Connection::Open(_)) => true,
+        }
     }
 
     // Returns the number of closed connections
     #[allow(dead_code)]
     fn count_closed(&self) -> usize {
-        todo!()
+        let mut count: usize = 0;
+        for (_, val) in self.connections.iter() {
+            if let Connection::Closed = val {
+                count += 1
+            }
+        }
+        count
     }
 }
 
@@ -101,7 +138,6 @@ enum Response {
     PostReceived,
     GetCount(u32),
 }
-
 
 #[derive(Clone)]
 struct Server {
@@ -113,7 +149,12 @@ struct Server {
 
 impl Server {
     fn new(name: String, limit: u32) -> Server {
-        todo!()
+        Server {
+            name,
+            post_count: 0,
+            limit,
+            connected_client: None,
+        }
     }
 
     // Consumes the message.
@@ -123,8 +164,23 @@ impl Server {
     // with the GetCount response containing the number of received POST requests.
     fn receive(&mut self, msg: Message) -> CommsResult<Response> {
         eprintln!("{} received:\n{}", self.name, msg.content());
-
-        todo!()
+        match msg.msg_type {
+            MessageType::Handshake => {
+                if self.connected_client != None {
+                    return Err(CommsError::UnexpectedHandshake(self.name.clone()));
+                }
+                self.connected_client = Some(msg.load);
+                Ok(Response::HandshakeReceived)
+            }
+            MessageType::Post => {
+                if self.post_count == self.limit {
+                    return Err(CommsError::ServerLimitReached(self.name.clone()));
+                }
+                self.post_count += 1;
+                Ok(Response::PostReceived)
+            }
+            MessageType::GetCount => Ok(Response::GetCount(self.post_count)),
+        }
     }
 }
 
