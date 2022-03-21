@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use Connection::{Closed, Open};
 
 type CommsResult<T> = Result<T, CommsError>;
 
@@ -95,7 +94,7 @@ impl Client {
     // should be closed.
     fn send(&mut self, addr: &str, msg: Message) -> CommsResult<Response> {
         match self.connections.get_mut(addr) {
-            Some(Open(s)) => {
+            Some(Connection::Open(s)) => {
                 let respond = s.receive(msg);
                 if respond == Err(CommsError::ServerLimitReached(s.name.clone())) {
                     self.connections
@@ -103,7 +102,7 @@ impl Client {
                 }
                 respond
             }
-            Some(Closed) => Err(CommsError::ConnectionClosed(String::from(addr))),
+            Some(Connection::Closed) => Err(CommsError::ConnectionClosed(String::from(addr))),
             None => Err(CommsError::ConnectionNotFound(String::from(addr))),
         }
     }
