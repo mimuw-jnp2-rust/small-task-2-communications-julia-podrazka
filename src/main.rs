@@ -98,7 +98,6 @@ impl Client {
             Some(Open(s)) => {
                 let respond = s.receive(msg);
                 if respond == Err(CommsError::ServerLimitReached(s.name.clone())) {
-                    self.connections.remove(addr);
                     self.connections
                         .insert(String::from(addr), Connection::Closed);
                 }
